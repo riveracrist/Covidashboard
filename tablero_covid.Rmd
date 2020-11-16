@@ -1,0 +1,548 @@
+---
+title: "COVID-19 Colombia"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: scroll
+    theme: cerulean
+    favicon: www/logovirus.png
+    source_code: embed
+    css: www/edicion.css
+    social: ["twitter","facebook","menu"]
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(tidyverse)
+library(data.table)
+library(plotly)
+library(DT)
+library(ggridges)
+library(lubridate)
+
+# Datos
+
+datos <- fread("Casos_positivos_de_COVID-19_en_Colombia.csv",
+               encoding = "UTF-8", na.strings = "N/A")
+
+datos[datos == ""] <- NA
+
+
+
+datos %>% 
+  select(FechaNotif = `Fecha de notificación`,
+         Ciudad = `Ciudad de ubicación`,
+         Departamento = `Departamento o Distrito`,
+         Atención = atención,
+         Edad, Sexo, Tipo, Estado, 
+         País = `País de procedencia`,
+         FechaMuerte = `Fecha de muerte`,
+         FechaDiagn = `Fecha diagnostico`,
+         FechaRecup = `Fecha recuperado`,
+         TipoRecup = `Tipo recuperación`,
+         Etnia = `Pertenencia etnica`,
+         GrupoEtn = `Nombre grupo etnico`) %>% 
+  mutate(FechaNotif = as.Date(FechaNotif),
+         FechaMuerte = as.Date(FechaMuerte),
+         FechaDiagn = as.Date(FechaDiagn),
+         FechaRecup = as.Date(FechaRecup),
+         Sexo = gsub("f", "F", Sexo),
+         Sexo = gsub("m", "M", Sexo),
+         Departamento = gsub("Archipiélago de San Andrés Providencia y Santa Catalina",
+                             "S. Andrés", Departamento),
+         GrupoEtn = Hmisc::capitalize(tolower(GrupoEtn)),
+         País = Hmisc::capitalize(tolower(País))) %>%
+  mutate(País = gsub("Arabia saudita", "Arabia saudí", País)) %>% 
+  mutate_if(is.character, as.factor) %>% 
+  mutate(Atención = gsub("CASA", "Casa", Atención)) %>%
+  mutate(Atención = as.factor(Atención)) %>% 
+  mutate(Estado = gsub("LEVE", "Leve", Estado)) %>% 
+  mutate(Estado = gsub("GRAVE", "Grave", Estado))->
+  baseFinal
+
+```
+
+Inicio
+====================================
+
+<center>
+
+<img src="www/coronavirus.gif" height=680>
+
+</center>
+
+
+Total por día {data-navmenu="Casos Positivos"}
+=====================================
+
+<tblue>La base de datos puede ser descargada [aquí](https://www.datos.gov.co/Salud-y-Protecci-n-Social/Casos-positivos-de-COVID-19-en-Colombia/gt2j-8ykr)</tblue>. Fecha de descarga de los datos Octubre 25 de 2020.
+
+
+Column {data-width=600 .tabset}
+-------------------------------------
+    
+### Casos Totales por día
+    
+```{r}
+ggplotly(
+  baseFinal %>% 
+  group_by(FechaNotif) %>% 
+  summarise(Total = n()) %>%
+  ggplot(., mapping = aes(x = FechaNotif, y = Total))+
+  geom_point(color = "darkcyan")+
+  scale_x_date(date_breaks = "15 day") +
+  geom_line(color  = "gray") +
+  geom_smooth(se = FALSE, color = "cornflowerblue")+
+  labs(x = "Fecha", y = "Casos", title = "",
+       subtitle = "", caption = "")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  theme(panel.border = element_blank())
+  ) %>% 
+  layout(height = 450)
+```
+
+### Logaritmo Casos Totales por día
+    
+```{r}
+ggplotly(
+  baseFinal %>% 
+  group_by(FechaNotif) %>% 
+  summarise(Total = n()) %>%
+  ggplot(., mapping = aes(x = FechaNotif, y = log(Total)))+
+  geom_point(color = "darkcyan")+
+  scale_x_date(date_breaks = "15 day") +
+  geom_line(color  = "gray") +
+  geom_smooth(se = FALSE, color = "cornflowerblue")+
+  labs(x = "Fecha", y = "log(casos)", title = "",
+       subtitle = "", caption = "")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  theme(panel.border = element_blank())
+  ) %>% 
+  layout(height = 450)
+```
+
+
+   
+Column {.tabset}
+-------------------------------------
+   
+### Casos totales por departamento
+
+```{r}
+baseFinal %>% 
+  group_by(Departamento) %>% 
+  summarise(Total = n()) %>%
+  ungroup() %>% 
+  arrange(desc(Total)) %>% 
+  datatable(extensions = 'Buttons',
+            rownames = FALSE,
+            filter = "top",
+            selection = "multiple",
+            options = list(dom = 'Bfrtip',
+                           buttons = c('csv', 'excel', 'pdf')))
+```   
+ 
+### Variación diaria por Departamento
+    
+El punto rojo representa la media    
+    
+```{r fig.height=12, fig.width=7}
+ggplotly(baseFinal %>% 
+  group_by(Departamento, FechaNotif) %>% 
+  summarise(Total = n()) %>% 
+  ungroup() %>% 
+  group_by(Departamento, FechaNotif) %>% 
+  summarise(Total = sum(Total)) %>% 
+  ggplot(aes(x = reorder(Departamento, Total), y = Total))+
+  geom_boxplot(fill = "cornflowerblue")+
+  labs(x = "", y = "Casos", title = "",
+       subtitle = "", caption = "")+
+  stat_summary(fun.y = mean, geom = "point", color = "firebrick")+
+  scale_y_log10()+
+  theme_bw()+
+  theme(panel.border = element_blank())+
+  coord_flip())
+  
+```
+
+
+
+Total acumulado {data-navmenu="Casos Positivos"}
+=====================================
+
+
+Row {data-width=150}
+-------------------------------------
+
+### Total hombres
+
+```{r}
+baseFinal %>% 
+  group_by(Sexo) %>% 
+  summarise(Total = n()) %>% 
+  ungroup() %>%
+  filter(Sexo == "M") %>% 
+  pull(Total) %>% 
+  sum() -> thombres
+
+gauge(thombres, min = 0, max = nrow(baseFinal), 
+      gaugeSectors(
+  success = c(0, 100000),
+  warning = c(0, 100000),
+  danger = c(0, nrow(baseFinal)),
+  colors = "#E41A1C"))
+  
+```
+
+### Total mujeres
+
+```{r}
+baseFinal %>% 
+  group_by(Sexo) %>% 
+  summarise(Total = n()) %>% 
+  ungroup() %>%
+  filter(Sexo == "F") %>% 
+  pull(Total) %>% 
+  sum() -> tmujeres
+
+gauge(tmujeres, min = 0, max = nrow(baseFinal), 
+      gaugeSectors(
+  success = c(0, 100000),
+  warning = c(0, 100000),
+  danger = c(0, nrow(baseFinal)),
+  colors = "cadetblue"))
+  
+```
+
+
+### Máximo semanal
+
+```{r}
+baseFinal %>% 
+  group_by(FechaNotif) %>% 
+  count(name = "Total_dia") %>%
+  ungroup() %>% 
+  mutate(Semana = week(FechaNotif)) %>% 
+  group_by(Semana) %>% 
+  summarise(Total = sum(Total_dia)) %>% 
+  pull(max(Total)) -> maximo
+
+
+valueBox(max(maximo), 
+         icon = "fa fa-users",
+         color = "danger")
+```
+
+
+Row {.tabset}
+------------------------------------
+
+### Casos totales en el país
+
+```{r}
+ggplotly(baseFinal %>% 
+  group_by(FechaNotif) %>% 
+  summarise(Total = n()) %>%
+  ungroup() %>% 
+  mutate(T.Acumulado = cumsum(Total)) %>% 
+  ggplot(otro, mapping = aes(x = FechaNotif, y = T.Acumulado))+
+  geom_line(color = "dodgerblue4", size=1)+
+  scale_x_date(date_breaks = "15 day") +
+  labs(x = "", y = "Casos", title = "",
+       subtitle = "", caption = "")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  theme(panel.border = element_blank())
+)
+```
+
+### Log. casos totales en el país
+
+```{r}
+ggplotly(baseFinal %>% 
+  group_by(FechaNotif) %>% 
+  summarise(Total = n()) %>%
+  ungroup() %>% 
+  mutate(T.Acumulado = cumsum(Total)) %>% 
+  ggplot(otro, mapping = aes(x = FechaNotif, y = log(T.Acumulado)))+
+  geom_line(color = "dodgerblue4", size=1)+
+  scale_x_date(date_breaks = "15 day") +
+  labs(x = "", y = "log(casos)", title = "",
+       subtitle = "", caption = "")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  theme(panel.border = element_blank())
+)
+```
+
+
+
+### Casos acumulados por género
+
+```{r}
+ggplotly(
+  baseFinal%>% 
+  group_by(Sexo, FechaNotif) %>% 
+  summarise(Total = n()) %>%
+  mutate(T.Acumulado = cumsum(Total)) %>% 
+  ggplot(mapping = aes(x = FechaNotif, y = T.Acumulado, color = Sexo))+
+  geom_line(size=1)+
+  scale_color_manual(values = c("cadetblue", "firebrick2"))+
+  scale_x_date(date_breaks = "15 day") +
+  labs(x = "", y = "Casos", title = "",
+       subtitle = "", caption = "")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  theme(panel.border = element_blank())
+  )
+```
+
+
+### Log. casos acumulados por género
+
+```{r}
+ggplotly(
+  baseFinal%>% 
+  group_by(Sexo, FechaNotif) %>% 
+  summarise(Total = n()) %>%
+  mutate(T.Acumulado = cumsum(Total)) %>% 
+  ggplot(mapping = aes(x = FechaNotif, y = log(T.Acumulado), color = Sexo))+
+  geom_line(size=1)+
+  scale_color_manual(values = c("cadetblue", "firebrick2"))+
+  scale_x_date(date_breaks = "15 day") +
+  labs(x = "", y = "log(casos)", title = "",
+       subtitle = "", caption = "")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  theme(panel.border = element_blank())
+  )
+```
+
+
+
+Column {data-width=400 .tabset}
+------------------------------------
+
+### Variación semanal
+
+```{r, fig.height=5.5, fig.asp=1}
+baseFinal %>% 
+  group_by(FechaNotif) %>% 
+  count(name = "Total_dia") %>%
+  ungroup() %>% 
+  mutate(Semana = week(FechaNotif)) %>% 
+  ggplot(aes(x = Total_dia, y = as.factor(Semana)))+
+  geom_density_ridges(fill = "cadetblue")+theme_bw()+
+  theme(panel.border = element_blank())+
+  labs(x = "Casos por día", y = "Semana")
+  
+```
+
+### Variación semanal por género
+
+```{r, fig.height=6, fig.asp=1}
+baseFinal %>% 
+  group_by(FechaNotif, Sexo) %>% 
+  count(name = "Total_dia") %>%
+  ungroup() %>% 
+  mutate(Semana = week(FechaNotif)) %>% 
+  ggplot(aes(x = Total_dia, y = as.factor(Semana), fill = Sexo))+
+  scale_fill_manual(values = c("cadetblue", "firebrick2"))+
+  geom_density_ridges(alpha = 0.7)+theme_bw()+
+  theme(panel.border = element_blank(), legend.position = "top")+
+  labs(x = "Casos por día", y = "Semana")
+```
+
+
+
+
+
+
+
+Indicadores Epidemiológicos {data-navmenu="Casos Positivos"}
+====================================
+
+Column {data-width=100}
+------------------------------------
+
+### Casos positivos
+
+```{r}
+totalp <- nrow(baseFinal)
+
+valueBox(totalp,
+         icon = "fa fa-ambulance",
+         color = "primary")
+```
+
+
+### Personas recuperadas
+
+```{r}
+Recuperado <- baseFinal %>% 
+  filter(Atención == "Recuperado") %>% 
+  count()
+
+valueBox(Recuperado,
+         icon = "fa fa-thumbs-up",
+         color = "lightgreen")
+```
+
+
+### Tasa de Mortalidad
+
+```{r}
+baseFinal %>% 
+  filter(Estado == "Fallecido") -> muertos
+
+mortalidad <- round((nrow(muertos)/48258494)*10000, digits = 2)
+
+valueBox(mortalidad,
+         icon = "fa fa-user-times",
+         color = "yellow")
+```
+
+
+### Tasa de Letalidad
+
+```{r}
+letalidad <- round((nrow(muertos)/nrow(baseFinal))*100, digits = 2)
+
+valueBox(letalidad,
+         icon = "fa fa-percent",
+         color = "orange")
+```
+
+
+### Número de fallecidos
+
+```{r}
+fallecidos <- baseFinal %>% 
+  filter(Estado == "Fallecido") %>% 
+  count()
+
+valueBox(fallecidos,
+         icon = "fa fa-frown-o",
+         color = "red")
+```
+
+
+
+
+
+
+Column {data-width=350 .tabset}
+------------------------------------
+
+### Edades
+
+```{r}
+ggplot(data = baseFinal, aes(x = Edad))+
+  geom_density(alpha = 0.5, fill = "darkcyan")
+```
+
+### Género/Edades
+
+```{r}
+ggplot(data = baseFinal, aes(Edad, fill = Sexo))+
+  geom_density(alpha = 0.5)
+```
+
+
+### Edad/Género/Fallecido
+
+```{r}
+baseFinal %>% 
+  filter(Estado == "Fallecido") -> crg
+
+ggplot(data = crg, aes(x = Edad, fill = Sexo))+
+geom_density(alpha = 0.5)
+  
+```
+
+
+### Edad/Género/Recuperado
+
+
+```{r}
+baseFinal %>% 
+  filter(Atención == "Recuperado") -> crg2
+
+ggplot(data = crg2, aes(x = Edad, fill = Sexo))+
+geom_density(alpha = 0.5)
+  
+```
+
+
+### Distribución por género y edades
+
+```{r}
+baseFinal %>% 
+  ggplot(aes(x = Sexo, y = Edad))+
+  geom_violin(aes(color = Sexo, fill = Sexo), alpha = 0.5)+
+  geom_boxplot(aes(fill = Sexo),width = 0.2, outlier.alpha = 0.01)
+  
+```
+
+
+
+
+Column {data-width=350 .tabset}
+------------------------------------
+
+### Recuperados/Fallecidos
+
+```{r fig.height=6, fig.asp=1}
+
+ggplotly(ggplot(data = baseFinal, aes(x = Edad, fill = Atención))+
+  geom_density(alpha = 0.5))
+```
+
+### Asintomáticos
+
+```{r fig.height=6, fig.asp=1}
+ggplotly(ggplot(data = baseFinal, aes(x = Edad, fill = Estado))+
+  geom_density(alpha = 0.5))
+```
+
+
+Resumen ciudades {data-navmenu="Casos Positivos"}
+=====================================
+
+```{r}
+cities <- baseFinal %>% 
+  group_by(Ciudad, Departamento, Atención) %>% 
+  summarise(Total = n()) %>% 
+  ungroup()
+
+cities1 <-  spread(data = cities, key = Atención, value = Total) %>% 
+  datatable(extensions = 'Buttons',
+            rownames = FALSE,
+            filter = "top",
+            selection = "multiple",
+            options = list(dom = 'Bfrtip',
+                           buttons = c('csv', 'excel', 'pdf')))
+cities1
+```
+
+
+Resumen ciudades2 {data-navmenu="Casos Positivos"}
+=====================================
+
+```{r}
+ciudades <- baseFinal %>% 
+  group_by(Ciudad, Departamento, Estado) %>% 
+  summarise(Total = n()) %>% 
+  ungroup()
+
+ciudades1 <-  spread(data = ciudades, key = Estado, value = Total) %>% 
+  datatable(extensions = 'Buttons',
+            rownames = FALSE,
+            filter = "top",
+            selection = "multiple",
+            options = list(dom = 'Bfrtip',
+                           buttons = c('csv', 'excel', 'pdf')))
+ciudades1
+```
